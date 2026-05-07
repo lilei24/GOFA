@@ -79,7 +79,7 @@ class BaseTemplate(LightningModule):
         self.eval_kit = eval_kit
 
     def _debug_eval_print(self, stage, step_name, batch_idx):
-        if batch_idx != 0:
+        if batch_idx > 2:
             return
         rank = getattr(self, "global_rank", 0)
         local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
@@ -147,9 +147,16 @@ class BaseTemplate(LightningModule):
         self.compute_results(batch, batch_idx, self.exp_config.val_state_name[dataloader_idx], log_loss=False, )
 
     def on_validation_epoch_end(self):
+        rank = getattr(self, "global_rank", 0)
+        local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
+        print(f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=enter_on_validation_epoch_end", flush=True)
         cur_metric = []
         for name in self.exp_config.val_state_name:
+            print(f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=before_epoch_post_process name={name}",
+                  flush=True)
             metric = self.epoch_post_process(name)
+            print(f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=after_epoch_post_process name={name}",
+                  flush=True)
             if metric is not None:
                 cur_metric.append(metric.cpu())
         if self.exp_config.dataset_callback is not None:

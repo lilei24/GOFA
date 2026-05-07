@@ -162,7 +162,10 @@ class EvalKit(torch.nn.Module):
 
     def eval_epoch(self, state: str):
         evlter = self.get_evlter(state)
-        return evlter.compute()
+        print(f"[DEBUG-METRIC] enter eval_epoch state={state}", flush=True)
+        result = evlter.compute()
+        print(f"[DEBUG-METRIC] finished eval_epoch state={state}", flush=True)
+        return result
 
     def eval_reset(self, state: str):
         evlter = self.get_evlter(state)
