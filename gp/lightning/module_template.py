@@ -11,6 +11,13 @@ from torch.optim import Optimizer
 from gp.lightning.metric import EvalKit
 
 
+def _safe_debug_write_line(instance, message):
+    rank = getattr(instance, "global_rank", 0)
+    log_path = f"/tmp/gofa_stage3_rank_{rank}.log"
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(message + "\n")
+
+
 class ExpConfig:
     def __init__(self, name, optimizer, opt_params=None, lr_scheduler=None, dataset_callback=None, acc_grad_step=1, ):
         self.name = name
@@ -79,12 +86,6 @@ class BaseTemplate(LightningModule):
         self.op_step = 0
         self.eval_kit = eval_kit
 
-    def _debug_write_line(self, message):
-        rank = getattr(self, "global_rank", 0)
-        log_path = f"/tmp/gofa_stage3_rank_{rank}.log"
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(message + "\n")
-
     def _debug_eval_print(self, stage, step_name, batch_idx):
         if batch_idx > 2:
             return
@@ -92,7 +93,7 @@ class BaseTemplate(LightningModule):
         local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
         message = f"[DEBUG-EVAL] rank={rank} local_rank={local_rank} stage={stage} step={step_name} batch_idx={batch_idx}"
         print(message, flush=True)
-        self._debug_write_line(message)
+        _safe_debug_write_line(self, message)
 
     def on_test_epoch_start(self):
         self.on_validation_epoch_start()
@@ -163,16 +164,16 @@ class BaseTemplate(LightningModule):
         local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
         message = f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=enter_on_validation_epoch_end"
         print(message, flush=True)
-        self._debug_write_line(message)
+        _safe_debug_write_line(self, message)
         cur_metric = []
         for name in self.exp_config.val_state_name:
             message = f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=before_epoch_post_process name={name}"
             print(message, flush=True)
-            self._debug_write_line(message)
+            _safe_debug_write_line(self, message)
             metric = self.epoch_post_process(name)
             message = f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=after_epoch_post_process name={name}"
             print(message, flush=True)
-            self._debug_write_line(message)
+            _safe_debug_write_line(self, message)
             if metric is not None:
                 cur_metric.append(metric.cpu())
         if self.exp_config.dataset_callback is not None:
