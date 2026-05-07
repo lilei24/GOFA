@@ -165,3 +165,8 @@ cache_data
 saved_exp
 jobs
 TAGLAS
+!TAGLAS/
+TAGLAS/*
+!TAGLAS/evaluation/
+TAGLAS/evaluation/*
+!TAGLAS/evaluation/text_evaluation.py
