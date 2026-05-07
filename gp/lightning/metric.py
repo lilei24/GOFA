@@ -146,7 +146,19 @@ class EvalKit(torch.nn.Module):
         func = self.evlter_func[state]
         func_name = getattr(func, "__name__", type(func).__name__)
         print(f"[DEBUG-METRIC] calling eval func={func_name}", flush=True)
-        result = func(evlter, output, batch)
+        if func_name == "sentence_base":
+            print("[DEBUG-METRIC] inline sentence_base begin", flush=True)
+            pred_text = output.pred_text
+            print("[DEBUG-METRIC] inline sentence_base got pred_text", flush=True)
+            label_map_np = batch.label_map.cpu().numpy()
+            print("[DEBUG-METRIC] inline sentence_base label_map to numpy", flush=True)
+            answer = batch.label[label_map_np].tolist()
+            print("[DEBUG-METRIC] inline sentence_base built answer list", flush=True)
+            evlter.update(pred_text, answer)
+            print("[DEBUG-METRIC] inline sentence_base finished evlter.update", flush=True)
+            result = None
+        else:
+            result = func(evlter, output, batch)
         print(f"[DEBUG-METRIC] finished eval func={func_name}", flush=True)
         return result
 
