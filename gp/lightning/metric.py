@@ -150,9 +150,7 @@ class EvalKit(torch.nn.Module):
             print("[DEBUG-METRIC] inline sentence_base begin", flush=True)
             pred_text = output.pred_text
             print("[DEBUG-METRIC] inline sentence_base got pred_text", flush=True)
-            label_map_np = batch.label_map.cpu().numpy()
-            print("[DEBUG-METRIC] inline sentence_base label_map to numpy", flush=True)
-            answer = batch.label[label_map_np].tolist()
+            answer = output.answer
             print("[DEBUG-METRIC] inline sentence_base built answer list", flush=True)
             evlter.update(pred_text, answer)
             print("[DEBUG-METRIC] inline sentence_base finished evlter.update", flush=True)
