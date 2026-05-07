@@ -78,6 +78,14 @@ class BaseTemplate(LightningModule):
         self.op_step = 0
         self.eval_kit = eval_kit
 
+    def _debug_eval_print(self, stage, step_name, batch_idx):
+        if batch_idx != 0:
+            return
+        rank = getattr(self, "global_rank", 0)
+        local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
+        print(f"[DEBUG-EVAL] rank={rank} local_rank={local_rank} stage={stage} step={step_name} batch_idx={batch_idx}",
+              flush=True)
+
     def on_test_epoch_start(self):
         self.on_validation_epoch_start()
 
@@ -89,8 +97,14 @@ class BaseTemplate(LightningModule):
         return optimizer_dict
 
     def compute_results(self, batch, batch_idx, step_name, log_loss=True, *args):
+        if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
+            self._debug_eval_print("before_forward", step_name, batch_idx)
         score = self(batch, *args)
+        if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
+            self._debug_eval_print("after_forward", step_name, batch_idx)
         loss = self.eval_kit.compute_loss(score, batch)
+        if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
+            self._debug_eval_print("after_loss", step_name, batch_idx)
         self.log(osp.join(self.name, step_name, "loss"), loss, on_step=True, on_epoch=False, prog_bar=log_loss,
                  batch_size=batch.batch_size if hasattr(batch, "batch_size") else len(batch), sync_dist=True, )
         with torch.no_grad():
@@ -121,6 +135,7 @@ class BaseTemplate(LightningModule):
             self.epoch_post_process(name)
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
+        self._debug_eval_print("validation_step_enter", self.exp_config.val_state_name[dataloader_idx], batch_idx)
         self.compute_results(batch, batch_idx, self.exp_config.val_state_name[dataloader_idx], log_loss=False, )
 
     def on_validation_epoch_end(self):
@@ -133,6 +148,7 @@ class BaseTemplate(LightningModule):
             self.exp_config.dataset_callback(cur_metric)
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
+        self._debug_eval_print("test_step_enter", self.exp_config.test_state_name[dataloader_idx], batch_idx)
         self.compute_results(batch, batch_idx, self.exp_config.test_state_name[dataloader_idx], log_loss=False, )
 
     def on_test_epoch_end(self):
