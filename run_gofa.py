@@ -226,7 +226,7 @@ def main(params):
     if params.load_model:
         print("-" * 60 + "LOADING" + "-" * 60)
         model.load_partial(load_dir=params.load_dir)
-    strategy = "deepspeed_stage_2" if torch.cuda.device_count() > 1 else "auto"
+    strategy = "deepspeed_stage_3" if torch.cuda.device_count() > 1 else "auto"
 
     if params.run_mode == "inf":
         val_res, test_res = lightning_test(wandb_logger, pred_model, params.datamodule, metrics, strategy=strategy)
