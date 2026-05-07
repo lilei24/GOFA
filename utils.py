@@ -28,9 +28,9 @@ def sentence_base(func, output, batch):
     print("[DEBUG-SENTENCE] enter sentence_base", flush=True)
     pred_text = output.pred_text
     print("[DEBUG-SENTENCE] got pred_text", flush=True)
-    label_map_np = batch.label_map.cpu().numpy()
-    print("[DEBUG-SENTENCE] label_map to numpy", flush=True)
-    answer = batch.label[label_map_np].tolist()
+    label_map_list = batch.label_map.detach().tolist()
+    print("[DEBUG-SENTENCE] label_map to list", flush=True)
+    answer = [batch.label[i] for i in label_map_list]
     print("[DEBUG-SENTENCE] built answer list", flush=True)
     func.update(pred_text, answer)
     print("[DEBUG-SENTENCE] finished metric update", flush=True)
