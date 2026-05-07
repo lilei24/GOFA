@@ -145,6 +145,10 @@ class BaseTemplate(LightningModule):
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         self._debug_eval_print("validation_step_enter", self.exp_config.val_state_name[dataloader_idx], batch_idx)
         self.compute_results(batch, batch_idx, self.exp_config.val_state_name[dataloader_idx], log_loss=False, )
+        self._debug_eval_print("validation_step_exit", self.exp_config.val_state_name[dataloader_idx], batch_idx)
+
+    def on_validation_batch_end(self, outputs, batch, batch_idx, dataloader_idx=0):
+        self._debug_eval_print("on_validation_batch_end", self.exp_config.val_state_name[dataloader_idx], batch_idx)
 
     def on_validation_epoch_end(self):
         rank = getattr(self, "global_rank", 0)
