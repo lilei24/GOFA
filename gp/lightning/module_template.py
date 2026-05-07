@@ -1,3 +1,4 @@
+import os
 import os.path as osp
 from typing import Optional, Union, List, Callable, Any
 
@@ -78,13 +79,20 @@ class BaseTemplate(LightningModule):
         self.op_step = 0
         self.eval_kit = eval_kit
 
+    def _debug_write_line(self, message):
+        rank = getattr(self, "global_rank", 0)
+        log_path = f"/tmp/gofa_stage3_rank_{rank}.log"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(message + "\n")
+
     def _debug_eval_print(self, stage, step_name, batch_idx):
         if batch_idx > 2:
             return
         rank = getattr(self, "global_rank", 0)
         local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
-        print(f"[DEBUG-EVAL] rank={rank} local_rank={local_rank} stage={stage} step={step_name} batch_idx={batch_idx}",
-              flush=True)
+        message = f"[DEBUG-EVAL] rank={rank} local_rank={local_rank} stage={stage} step={step_name} batch_idx={batch_idx}"
+        print(message, flush=True)
+        self._debug_write_line(message)
 
     def on_test_epoch_start(self):
         self.on_validation_epoch_start()
@@ -153,14 +161,18 @@ class BaseTemplate(LightningModule):
     def on_validation_epoch_end(self):
         rank = getattr(self, "global_rank", 0)
         local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
-        print(f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=enter_on_validation_epoch_end", flush=True)
+        message = f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=enter_on_validation_epoch_end"
+        print(message, flush=True)
+        self._debug_write_line(message)
         cur_metric = []
         for name in self.exp_config.val_state_name:
-            print(f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=before_epoch_post_process name={name}",
-                  flush=True)
+            message = f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=before_epoch_post_process name={name}"
+            print(message, flush=True)
+            self._debug_write_line(message)
             metric = self.epoch_post_process(name)
-            print(f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=after_epoch_post_process name={name}",
-                  flush=True)
+            message = f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=after_epoch_post_process name={name}"
+            print(message, flush=True)
+            self._debug_write_line(message)
             if metric is not None:
                 cur_metric.append(metric.cpu())
         if self.exp_config.dataset_callback is not None:
