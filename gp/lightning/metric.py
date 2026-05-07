@@ -140,8 +140,15 @@ class EvalKit(torch.nn.Module):
         return self.evlters[state]
 
     def eval_step(self, output: Any, batch: Any, state: str):
+        print(f"[DEBUG-METRIC] enter eval_step state={state}", flush=True)
         evlter = self.get_evlter(state)
-        return self.evlter_func[state](evlter, output, batch)
+        print(f"[DEBUG-METRIC] got evlter type={type(evlter).__name__}", flush=True)
+        func = self.evlter_func[state]
+        func_name = getattr(func, "__name__", type(func).__name__)
+        print(f"[DEBUG-METRIC] calling eval func={func_name}", flush=True)
+        result = func(evlter, output, batch)
+        print(f"[DEBUG-METRIC] finished eval func={func_name}", flush=True)
+        return result
 
     def eval_epoch(self, state: str):
         evlter = self.get_evlter(state)
