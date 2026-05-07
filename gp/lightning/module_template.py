@@ -105,11 +105,19 @@ class BaseTemplate(LightningModule):
         loss = self.eval_kit.compute_loss(score, batch)
         if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
             self._debug_eval_print("after_loss", step_name, batch_idx)
+        if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
+            self._debug_eval_print("before_log", step_name, batch_idx)
         self.log(osp.join(self.name, step_name, "loss"), loss, on_step=True, on_epoch=False, prog_bar=log_loss,
                  batch_size=batch.batch_size if hasattr(batch, "batch_size") else len(batch), sync_dist=True, )
+        if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
+            self._debug_eval_print("after_log", step_name, batch_idx)
         with torch.no_grad():
             if self.eval_kit.has_eval_state(step_name):
+                if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
+                    self._debug_eval_print("before_eval_step", step_name, batch_idx)
                 self.eval_kit.eval_step(score, batch, step_name)
+                if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
+                    self._debug_eval_print("after_eval_step", step_name, batch_idx)
         return score, loss
 
     def epoch_post_process(self, epoch_name):
