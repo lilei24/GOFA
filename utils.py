@@ -27,7 +27,8 @@ def extract_numbers(text):
 def sentence_base(func, output, batch):
     pred_text = output.pred_text
     answer = batch.label[batch.label_map.cpu().numpy()].tolist()
-    return func(pred_text, answer)
+    func.update(pred_text, answer)
+    return None
 
 
 def sentence_mae(func, output, batch):
