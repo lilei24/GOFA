@@ -375,7 +375,12 @@ class GOFAMistral(torch.nn.Module):
             if i < 3:
                 _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after att_mask cat")
 
-            if torch.all(eos_reached):
+            if i < 3:
+                _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} before eos check")
+            eos_done = torch.all(eos_reached)
+            if i < 3:
+                _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after eos check")
+            if eos_done:
                 _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} all eos reached")
                 break
 
