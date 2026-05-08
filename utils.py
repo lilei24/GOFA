@@ -25,14 +25,9 @@ def extract_numbers(text):
     return [float(num) for num in numbers]
 
 def sentence_base(func, output, batch):
-    print("[DEBUG-SENTENCE] enter sentence_base", flush=True)
     pred_text = output.pred_text
-    print("[DEBUG-SENTENCE] got pred_text", flush=True)
-    answer = output.answer
-    print("[DEBUG-SENTENCE] built answer list", flush=True)
-    func.update(pred_text, answer)
-    print("[DEBUG-SENTENCE] finished metric update", flush=True)
-    return None
+    answer = batch.label[batch.label_map.cpu().numpy()].tolist()
+    return func(pred_text, answer)
 
 
 def sentence_mae(func, output, batch):

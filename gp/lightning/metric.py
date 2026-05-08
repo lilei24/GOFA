@@ -1,5 +1,4 @@
 import copy
-import os
 import os.path as osp
 from itertools import chain
 from typing import Any, Callable, Optional, Literal, List, Union
@@ -7,14 +6,6 @@ from typing import Any, Callable, Optional, Literal, List, Union
 import torch
 from torchmetrics import MeanAbsoluteError, Accuracy, AUROC, MeanMetric, Metric
 from torchmetrics.text import BLEUScore
-
-
-def _debug_metric_log(message):
-    rank = int(os.environ.get("RANK", "0"))
-    log_dir = os.path.join(os.getcwd(), "tmp")
-    os.makedirs(log_dir, exist_ok=True)
-    with open(os.path.join(log_dir, f"gofa_stage3_rank_{rank}.log"), "a", encoding="utf-8") as f:
-        f.write(message + "\n")
 
 
 def classification_func(func, output, batch):
@@ -149,52 +140,12 @@ class EvalKit(torch.nn.Module):
         return self.evlters[state]
 
     def eval_step(self, output: Any, batch: Any, state: str):
-        message = f"[DEBUG-METRIC] enter eval_step state={state}"
-        print(message, flush=True)
-        _debug_metric_log(message)
         evlter = self.get_evlter(state)
-        message = f"[DEBUG-METRIC] got evlter type={type(evlter).__name__}"
-        print(message, flush=True)
-        _debug_metric_log(message)
-        func = self.evlter_func[state]
-        func_name = getattr(func, "__name__", type(func).__name__)
-        message = f"[DEBUG-METRIC] calling eval func={func_name}"
-        print(message, flush=True)
-        _debug_metric_log(message)
-        if func_name == "sentence_base":
-            message = "[DEBUG-METRIC] inline sentence_base begin"
-            print(message, flush=True)
-            _debug_metric_log(message)
-            pred_text = output.pred_text
-            message = "[DEBUG-METRIC] inline sentence_base got pred_text"
-            print(message, flush=True)
-            _debug_metric_log(message)
-            answer = output.answer
-            message = "[DEBUG-METRIC] inline sentence_base built answer list"
-            print(message, flush=True)
-            _debug_metric_log(message)
-            evlter.update(pred_text, answer)
-            message = "[DEBUG-METRIC] inline sentence_base finished evlter.update"
-            print(message, flush=True)
-            _debug_metric_log(message)
-            result = None
-        else:
-            result = func(evlter, output, batch)
-        message = f"[DEBUG-METRIC] finished eval func={func_name}"
-        print(message, flush=True)
-        _debug_metric_log(message)
-        return result
+        return self.evlter_func[state](evlter, output, batch)
 
     def eval_epoch(self, state: str):
         evlter = self.get_evlter(state)
-        message = f"[DEBUG-METRIC] enter eval_epoch state={state}"
-        print(message, flush=True)
-        _debug_metric_log(message)
-        result = evlter.compute()
-        message = f"[DEBUG-METRIC] finished eval_epoch state={state}"
-        print(message, flush=True)
-        _debug_metric_log(message)
-        return result
+        return evlter.compute()
 
     def eval_reset(self, state: str):
         evlter = self.get_evlter(state)

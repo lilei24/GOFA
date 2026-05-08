@@ -1,4 +1,3 @@
-import os
 import os.path as osp
 from typing import Optional, Union, List, Callable, Any
 
@@ -9,15 +8,6 @@ from lightning.pytorch.utilities.types import LRSchedulerTypeUnion
 from torch.optim import Optimizer
 
 from gp.lightning.metric import EvalKit
-
-
-def _safe_debug_write_line(instance, message):
-    rank = getattr(instance, "global_rank", 0)
-    log_dir = os.path.join(os.getcwd(), "tmp")
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, f"gofa_stage3_rank_{rank}.log")
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(message + "\n")
 
 
 class ExpConfig:
@@ -88,15 +78,6 @@ class BaseTemplate(LightningModule):
         self.op_step = 0
         self.eval_kit = eval_kit
 
-    def _debug_eval_print(self, stage, step_name, batch_idx):
-        if batch_idx > 2:
-            return
-        rank = getattr(self, "global_rank", 0)
-        local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
-        message = f"[DEBUG-EVAL] rank={rank} local_rank={local_rank} stage={stage} step={step_name} batch_idx={batch_idx}"
-        print(message, flush=True)
-        _safe_debug_write_line(self, message)
-
     def on_test_epoch_start(self):
         self.on_validation_epoch_start()
 
@@ -108,27 +89,13 @@ class BaseTemplate(LightningModule):
         return optimizer_dict
 
     def compute_results(self, batch, batch_idx, step_name, log_loss=True, *args):
-        if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
-            self._debug_eval_print("before_forward", step_name, batch_idx)
         score = self(batch, *args)
-        if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
-            self._debug_eval_print("after_forward", step_name, batch_idx)
         loss = self.eval_kit.compute_loss(score, batch)
-        if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
-            self._debug_eval_print("after_loss", step_name, batch_idx)
-        if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
-            self._debug_eval_print("before_log", step_name, batch_idx)
         self.log(osp.join(self.name, step_name, "loss"), loss, on_step=True, on_epoch=False, prog_bar=log_loss,
                  batch_size=batch.batch_size if hasattr(batch, "batch_size") else len(batch), sync_dist=True, )
-        if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
-            self._debug_eval_print("after_log", step_name, batch_idx)
         with torch.no_grad():
             if self.eval_kit.has_eval_state(step_name):
-                if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
-                    self._debug_eval_print("before_eval_step", step_name, batch_idx)
                 self.eval_kit.eval_step(score, batch, step_name)
-                if any(tag in step_name for tag in ("_val", "_test", "valid", "test")):
-                    self._debug_eval_print("after_eval_step", step_name, batch_idx)
         return score, loss
 
     def epoch_post_process(self, epoch_name):
@@ -154,35 +121,18 @@ class BaseTemplate(LightningModule):
             self.epoch_post_process(name)
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        self._debug_eval_print("validation_step_enter", self.exp_config.val_state_name[dataloader_idx], batch_idx)
         self.compute_results(batch, batch_idx, self.exp_config.val_state_name[dataloader_idx], log_loss=False, )
-        self._debug_eval_print("validation_step_exit", self.exp_config.val_state_name[dataloader_idx], batch_idx)
-
-    def on_validation_batch_end(self, outputs, batch, batch_idx, dataloader_idx=0):
-        self._debug_eval_print("on_validation_batch_end", self.exp_config.val_state_name[dataloader_idx], batch_idx)
 
     def on_validation_epoch_end(self):
-        rank = getattr(self, "global_rank", 0)
-        local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
-        message = f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=enter_on_validation_epoch_end"
-        print(message, flush=True)
-        _safe_debug_write_line(self, message)
         cur_metric = []
         for name in self.exp_config.val_state_name:
-            message = f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=before_epoch_post_process name={name}"
-            print(message, flush=True)
-            _safe_debug_write_line(self, message)
             metric = self.epoch_post_process(name)
-            message = f"[DEBUG-EPOCH] rank={rank} local_rank={local_rank} stage=after_epoch_post_process name={name}"
-            print(message, flush=True)
-            _safe_debug_write_line(self, message)
             if metric is not None:
                 cur_metric.append(metric.cpu())
         if self.exp_config.dataset_callback is not None:
             self.exp_config.dataset_callback(cur_metric)
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
-        self._debug_eval_print("test_step_enter", self.exp_config.test_state_name[dataloader_idx], batch_idx)
         self.compute_results(batch, batch_idx, self.exp_config.test_state_name[dataloader_idx], log_loss=False, )
 
     def on_test_epoch_end(self):

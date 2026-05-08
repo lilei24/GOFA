@@ -1,5 +1,4 @@
 # example code for running inference with fine-tuned checkpoint
-import os
 from typing import Optional
 
 import numpy as np
@@ -11,15 +10,6 @@ from modules.gofa.gofa_icae import MistralICAE
 from collections import OrderedDict
 from safetensors.torch import load_file
 from modules.utils import safe_download_hf_file
-
-
-def _debug_gofa_log(message):
-    rank = int(os.environ.get("RANK", "0"))
-    print(message, flush=True)
-    log_dir = os.path.join(os.getcwd(), "tmp")
-    os.makedirs(log_dir, exist_ok=True)
-    with open(os.path.join(log_dir, f"gofa_stage3_rank_{rank}.log"), "a", encoding="utf-8") as f:
-        f.write(message + "\n")
 
 ###################################################################
 #                 Configurations                                  #
@@ -148,16 +138,13 @@ class GOFAMistral(torch.nn.Module):
         """
         Encode the graph and generate logits for answer tokens.
         """
-        _debug_gofa_log("[DEBUG-GOFA] enter GOFAMistral.forward")
         g.num_node_feat = g.x.shape[0]
         if hasattr(g, "edge_attr") and g.edge_attr is not None:
             text_inputs = np.concatenate([g.x, g.edge_attr], axis=0)
         else:
             text_inputs = g.x
         text_inputs = text_inputs.tolist()
-        _debug_gofa_log("[DEBUG-GOFA] before encode in forward")
         llm_output = self.encode(text_inputs, graph=g, partial_grad=True)
-        _debug_gofa_log("[DEBUG-GOFA] after encode in forward")
         emb = llm_output[:g.node_map.size(-1)]
         if not hasattr(g, "answer"):
             raise ValueError("Forward stage graph should contain answer.")
@@ -167,37 +154,29 @@ class GOFAMistral(torch.nn.Module):
         prompt_input_texts = ["" if (p.startswith("Please complete the sentence of the node") or p == "") else p for p
                               in prompt_texts]
         emb = emb[g.question_index]
-        _debug_gofa_log("[DEBUG-GOFA] before decode in forward")
         answer_logits, answer_id, masks = self.decode(answer_texts, emb, prompt=prompt_input_texts)
-        _debug_gofa_log("[DEBUG-GOFA] after decode in forward")
         return answer_logits, answer_id, masks, answer_texts
 
     def generate(self, g, max_length=128):
         """
         Autoregressively generate tokens.
         """
-        _debug_gofa_log("[DEBUG-GOFA] enter GOFAMistral.generate")
         g.num_node_feat = g.x.shape[0]
         if hasattr(g, "edge_attr") and g.edge_attr is not None:
             text_inputs = np.concatenate([g.x, g.edge_attr], axis=0)
         else:
             text_inputs = g.x
         text_inputs = text_inputs.tolist()
-        _debug_gofa_log("[DEBUG-GOFA] before encode in generate")
         llm_output = self.encode(text_inputs, graph=g, partial_grad=True)
-        _debug_gofa_log("[DEBUG-GOFA] after encode in generate")
         emb = llm_output[:g.node_map.size(-1)]
         prompt_texts = g.question[g.question_map.cpu().numpy()].tolist()
         prompt_input_texts = ["" if (p.startswith("Please complete the sentence of the node") or p == "") else p for p
                               in prompt_texts]
         emb = emb[g.question_index]
-        _debug_gofa_log("[DEBUG-GOFA] before infer in generate")
         generated_text = self.infer(emb, prompt=prompt_input_texts, max_length=max_length)
-        _debug_gofa_log("[DEBUG-GOFA] after infer in generate")
         return generated_text
 
     def encode(self, data, graph=None, partial_grad=None):
-        _debug_gofa_log("[DEBUG-GOFA] enter encode")
         cur_device = self.model.memory_token_embed.weight.device
         batch_size = len(data)
         text_output = \
@@ -230,11 +209,9 @@ class GOFAMistral(torch.nn.Module):
             memory_embedding = node_emb[map_mem_mask].view(len(node_emb), self.mem_size, -1)
         else:
             memory_embedding = compress_outputs[mem_mask].view(batch_size, self.mem_size, -1)
-        _debug_gofa_log("[DEBUG-GOFA] exit encode")
         return memory_embedding
 
     def decode(self, data, mem_embs, graph=None, prompt=None):
-        _debug_gofa_log("[DEBUG-GOFA] enter decode")
         prompt_output = self.model.tokenizer(data, add_special_tokens=False, padding=False, truncation=False)["input_ids"]
         prompt_output = [p + [self.model.tokenizer.eos_token_id] if len(p) < self.model.training_args.model_max_length else p[:self.model.training_args.model_max_length] for p in prompt_output]
         original_prompt_output = prompt_output
@@ -279,14 +256,11 @@ class GOFAMistral(torch.nn.Module):
             self.model.icae.enable_adapter_layers()
         else:
             self.model.icae.disable_adapter_layers()
-        _debug_gofa_log("[DEBUG-GOFA] before decoder icae call")
         output_emb = self.model.icae(inputs_embeds=prompt_answer_embs).logits
-        _debug_gofa_log("[DEBUG-GOFA] after decoder icae call")
 
         return output_emb, answer_prompt, target_mask
 
     def infer(self, mem_embs, graph=None, prompt=None, max_length=128):
-        _debug_gofa_log("[DEBUG-GOFA] enter infer")
         cur_device = self.model.memory_token_embed.weight.device
 
         if prompt is None:
@@ -331,34 +305,12 @@ class GOFAMistral(torch.nn.Module):
         else:
             self.model.icae.disable_adapter_layers()
         for i in range(max_length):
-            if i < 8:
-                _debug_gofa_log(f"[DEBUG-GOFA] infer loop enter step={i}")
-            if i == 0:
-                _debug_gofa_log("[DEBUG-GOFA] before first infer icae call")
-            elif i == 1:
-                _debug_gofa_log("[DEBUG-GOFA] before second infer icae call")
-            elif i == 2:
-                _debug_gofa_log("[DEBUG-GOFA] before third infer icae call")
-            elif i < 8:
-                _debug_gofa_log(f"[DEBUG-GOFA] before infer icae call step={i}")
             out = self.model.icae(inputs_embeds=output, attention_mask=att_mask, past_key_values=None,
                                  use_cache=False)
-            if i == 0:
-                _debug_gofa_log("[DEBUG-GOFA] after first infer icae call")
-            elif i == 1:
-                _debug_gofa_log("[DEBUG-GOFA] after second infer icae call")
-            elif i == 2:
-                _debug_gofa_log("[DEBUG-GOFA] after third infer icae call")
-            elif i < 8:
-                _debug_gofa_log(f"[DEBUG-GOFA] after infer icae call step={i}")
 
             logits = out.logits[:, -1, :self.model.vocab_size - 1]
-            if i < 8:
-                _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after logits")
 
             next_token_id = torch.argmax(logits, dim=-1, keepdim=True)
-            if i < 8:
-                _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after argmax")
 
             eos_reached = torch.logical_or(eos_reached, (next_token_id == self.model.tokenizer.eos_token_id).view(-1))
 
@@ -367,22 +319,12 @@ class GOFAMistral(torch.nn.Module):
             # eos_reached = torch.logical_or(eos_reached, (next_token_id>=32000).view(-1))
 
             output = self.model.icae.get_base_model().model.embed_tokens(next_token_id).to(mem_embs.device)
-            if i < 8:
-                _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after embed_tokens")
 
             generate_text.append(next_token_id.view(-1, 1))
             att_mask = torch.cat(
                 [att_mask, torch.ones((len(att_mask), 1), dtype=att_mask.dtype, device=att_mask.device)], dim=-1)
-            if i < 8:
-                _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after att_mask cat")
 
-            if i < 8:
-                _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} before eos check")
-            eos_done = torch.all(eos_reached)
-            if i < 8:
-                _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after eos check")
-            if eos_done:
-                _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} all eos reached")
+            if torch.all(eos_reached):
                 break
 
         generate_text = torch.cat(generate_text, dim=-1)
@@ -390,5 +332,5 @@ class GOFAMistral(torch.nn.Module):
 
         generated_text = self.model.tokenizer.batch_decode(generate_text)
 
-        _debug_gofa_log("[DEBUG-GOFA] exit infer")
         return generated_text
+

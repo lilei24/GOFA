@@ -3,7 +3,7 @@ from typing import Any, Optional, Dict, Union, Callable
 
 import numpy as np
 
-from gp.lightning.module_template import BaseTemplate, _safe_debug_write_line
+from gp.lightning.module_template import BaseTemplate
 import torch
 
 class GraphPredLightning(BaseTemplate):
@@ -41,22 +41,6 @@ class GraphTextPredLightning(BaseTemplate):
 
     def on_train_batch_start(self, batch: Any, batch_idx: int) -> Optional[int]:
         pass
-
-    def on_validation_epoch_start(self) -> None:
-        rank = getattr(self, "global_rank", 0)
-        local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
-        message = f"[DEBUG-EVAL] rank={rank} local_rank={local_rank} stage=on_validation_epoch_start"
-        print(message, flush=True)
-        _safe_debug_write_line(self, message)
-        return super().on_validation_epoch_start()
-
-    def on_test_epoch_start(self):
-        rank = getattr(self, "global_rank", 0)
-        local_rank = getattr(self.trainer, "local_rank", 0) if getattr(self, "trainer", None) is not None else 0
-        message = f"[DEBUG-EVAL] rank={rank} local_rank={local_rank} stage=on_test_epoch_start"
-        print(message, flush=True)
-        _safe_debug_write_line(self, message)
-        return super().on_test_epoch_start()
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         if self.trainer.local_rank == 0:
