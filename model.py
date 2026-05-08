@@ -1,4 +1,5 @@
 from collections import namedtuple
+import os
 
 import torch
 
@@ -50,6 +51,13 @@ def identity(x):
     return x
 
 
+def _debug_model_log(message):
+    rank = int(os.environ.get("RANK", "0"))
+    print(message, flush=True)
+    with open(f"/tmp/gofa_stage3_rank_{rank}.log", "a", encoding="utf-8") as f:
+        f.write(message + "\n")
+
+
 class GOFA(torch.nn.Module):
     def __init__(self, transformer_args, mode="autoencoder", base_llm="mistral7b", save_dir=""):
         super().__init__()
@@ -75,15 +83,21 @@ class GOFA(torch.nn.Module):
             raise NotImplementedError(mode + " mode not implemented")
 
     def auto_encode_decode(self, g):
+        _debug_model_log("[DEBUG-MODEL] enter GOFA.auto_encode_decode")
+        _debug_model_log("[DEBUG-MODEL] before llm_model forward")
         answer_logits, answer_id, masks, answer_texts = self.llm_model(g)
+        _debug_model_log("[DEBUG-MODEL] after llm_model forward")
         GNNLMOutput = namedtuple("GNNLMOutput", ["logits", "answer_id", "pred_text", "answer"])
         return GNNLMOutput(logits=answer_logits[masks][:, :32000], pred_text=self.logit_to_text(answer_logits, masks),
                            answer_id=answer_id, answer=answer_texts)
 
     def generate(self, g):
+        _debug_model_log("[DEBUG-MODEL] enter GOFA.generate")
         answer_texts = g.answer[g.answer_map.cpu().numpy()].tolist()
         prompt_texts = g.question[g.question_map.cpu().numpy()].tolist()
+        _debug_model_log("[DEBUG-MODEL] before llm_model.generate")
         generated_text = self.llm_model.generate(g)
+        _debug_model_log("[DEBUG-MODEL] after llm_model.generate")
         for i, txt in enumerate(generated_text):
             print_fixed_length("question: " + prompt_texts[i])
             print("-"*120)
@@ -94,6 +108,7 @@ class GOFA(torch.nn.Module):
                            answer=answer_texts)
 
     def forward(self, g):
+        _debug_model_log(f"[DEBUG-MODEL] GOFA.forward mode={self.mode}")
         return self.process(g)
 
     def save_partial(self, save_dir):
@@ -116,4 +131,3 @@ class GOFA(torch.nn.Module):
             sample_text = tokenizer.batch_decode(token_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
             decoded_texts.extend(sample_text)
         return decoded_texts
-
