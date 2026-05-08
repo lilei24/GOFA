@@ -325,7 +325,6 @@ class GOFAMistral(torch.nn.Module):
         generate_text = []
         eos_reached = torch.zeros(len(output), dtype=torch.bool).to(output.device)
 
-        past_key_values = None
         if self.dec_lora:
             self.model.icae.set_adapter("default")
             self.model.icae.enable_adapter_layers()
@@ -342,8 +341,8 @@ class GOFAMistral(torch.nn.Module):
                 _debug_gofa_log("[DEBUG-GOFA] before third infer icae call")
             elif i < 8:
                 _debug_gofa_log(f"[DEBUG-GOFA] before infer icae call step={i}")
-            out = self.model.icae(inputs_embeds=output, attention_mask=att_mask, past_key_values=past_key_values,
-                                 use_cache=True)
+            out = self.model.icae(inputs_embeds=output, attention_mask=att_mask, past_key_values=None,
+                                 use_cache=False)
             if i == 0:
                 _debug_gofa_log("[DEBUG-GOFA] after first infer icae call")
             elif i == 1:
@@ -356,8 +355,6 @@ class GOFAMistral(torch.nn.Module):
             logits = out.logits[:, -1, :self.model.vocab_size - 1]
             if i < 8:
                 _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after logits")
-
-            past_key_values = out.past_key_values
 
             next_token_id = torch.argmax(logits, dim=-1, keepdim=True)
             if i < 8:
