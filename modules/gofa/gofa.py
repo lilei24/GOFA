@@ -332,25 +332,31 @@ class GOFAMistral(torch.nn.Module):
         else:
             self.model.icae.disable_adapter_layers()
         for i in range(max_length):
+            if i < 3:
+                _debug_gofa_log(f"[DEBUG-GOFA] infer loop enter step={i}")
             if i == 0:
                 _debug_gofa_log("[DEBUG-GOFA] before first infer icae call")
             elif i == 1:
                 _debug_gofa_log("[DEBUG-GOFA] before second infer icae call")
+            elif i == 2:
+                _debug_gofa_log("[DEBUG-GOFA] before third infer icae call")
             out = self.model.icae(inputs_embeds=output, attention_mask=att_mask, past_key_values=past_key_values,
                                  use_cache=True)
             if i == 0:
                 _debug_gofa_log("[DEBUG-GOFA] after first infer icae call")
             elif i == 1:
                 _debug_gofa_log("[DEBUG-GOFA] after second infer icae call")
+            elif i == 2:
+                _debug_gofa_log("[DEBUG-GOFA] after third infer icae call")
 
             logits = out.logits[:, -1, :self.model.vocab_size - 1]
-            if i < 2:
+            if i < 3:
                 _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after logits")
 
             past_key_values = out.past_key_values
 
             next_token_id = torch.argmax(logits, dim=-1, keepdim=True)
-            if i < 2:
+            if i < 3:
                 _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after argmax")
 
             eos_reached = torch.logical_or(eos_reached, (next_token_id == self.model.tokenizer.eos_token_id).view(-1))
@@ -360,13 +366,13 @@ class GOFAMistral(torch.nn.Module):
             # eos_reached = torch.logical_or(eos_reached, (next_token_id>=32000).view(-1))
 
             output = self.model.icae.get_base_model().model.embed_tokens(next_token_id).to(mem_embs.device)
-            if i < 2:
+            if i < 3:
                 _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after embed_tokens")
 
             generate_text.append(next_token_id.view(-1, 1))
             att_mask = torch.cat(
                 [att_mask, torch.ones((len(att_mask), 1), dtype=att_mask.dtype, device=att_mask.device)], dim=-1)
-            if i < 2:
+            if i < 3:
                 _debug_gofa_log(f"[DEBUG-GOFA] infer step={i} after att_mask cat")
 
             if torch.all(eos_reached):
