@@ -16,7 +16,9 @@ from modules.utils import safe_download_hf_file
 def _debug_gofa_log(message):
     rank = int(os.environ.get("RANK", "0"))
     print(message, flush=True)
-    with open(f"/tmp/gofa_stage3_rank_{rank}.log", "a", encoding="utf-8") as f:
+    log_dir = os.path.join(os.getcwd(), "tmp")
+    os.makedirs(log_dir, exist_ok=True)
+    with open(os.path.join(log_dir, f"gofa_stage3_rank_{rank}.log"), "a", encoding="utf-8") as f:
         f.write(message + "\n")
 
 ###################################################################

@@ -11,7 +11,9 @@ from torchmetrics.text import BLEUScore
 
 def _debug_metric_log(message):
     rank = int(os.environ.get("RANK", "0"))
-    with open(f"/tmp/gofa_stage3_rank_{rank}.log", "a", encoding="utf-8") as f:
+    log_dir = os.path.join(os.getcwd(), "tmp")
+    os.makedirs(log_dir, exist_ok=True)
+    with open(os.path.join(log_dir, f"gofa_stage3_rank_{rank}.log"), "a", encoding="utf-8") as f:
         f.write(message + "\n")
 
 

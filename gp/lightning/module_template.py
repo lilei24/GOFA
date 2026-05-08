@@ -13,7 +13,9 @@ from gp.lightning.metric import EvalKit
 
 def _safe_debug_write_line(instance, message):
     rank = getattr(instance, "global_rank", 0)
-    log_path = f"/tmp/gofa_stage3_rank_{rank}.log"
+    log_dir = os.path.join(os.getcwd(), "tmp")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, f"gofa_stage3_rank_{rank}.log")
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(message + "\n")
 
