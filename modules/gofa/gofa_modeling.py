@@ -219,6 +219,9 @@ class GOFAMistralModel(MistralModel):
         hidden_states = inputs_embeds
 
         # create position embeddings to be shared across the decoder layers
+        if self.gofa_config.model_parallel:
+            self.rotary_emb.to(hidden_states.device)
+            position_ids = position_ids.to(hidden_states.device)
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         # decoder layers
@@ -426,6 +429,9 @@ class GOFAMistralParallelModel(MistralModel):
         hidden_states = inputs_embeds
 
         # create position embeddings to be shared across the decoder layers
+        if self.rotary_emb.inv_freq.device != hidden_states.device:
+            self.rotary_emb.to(hidden_states.device)
+        position_ids = position_ids.to(hidden_states.device)
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         # decoder layers
