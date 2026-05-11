@@ -46,7 +46,10 @@ def main(params):
     params_dict = vars(params)
     wandb_logger.log_table(key="hparams", columns=list(params_dict.keys()), data=[list(params_dict.values())])
     model_args, training_args, gofa_args = ModelArguments(), TrainingArguments(), gofa_config(
-        num_layers=params.num_layers, gnn_type=params.gnn_type, fuse_type=params.fuse_type)
+        num_layers=params.num_layers, gnn_type=params.gnn_type, fuse_type=params.fuse_type,
+        model_parallel=params.run_mode == "inf" and params.inference_model_parallel,
+        model_parallel_devices=params.inference_model_parallel_devices,
+        model_parallel_splits=params.inference_model_parallel_splits)
     model_args.dec_lora = params.dec_lora
     training_args.model_max_length = params.llm_max_length
     if params.training_precision == "bf16-mixed":
@@ -226,10 +229,16 @@ def main(params):
     if params.load_model:
         print("-" * 60 + "LOADING" + "-" * 60)
         model.load_partial(load_dir=params.load_dir)
-    strategy = "deepspeed_stage_2" if torch.cuda.device_count() > 1 else "auto"
+    if params.run_mode == "inf" and params.inference_model_parallel:
+        strategy = "auto"
+        accelerator = "cpu"
+    else:
+        strategy = "deepspeed_stage_2" if torch.cuda.device_count() > 1 else "auto"
+        accelerator = "auto"
 
     if params.run_mode == "inf":
-        val_res, test_res = lightning_test(wandb_logger, pred_model, params.datamodule, metrics, strategy=strategy)
+        val_res, test_res = lightning_test(wandb_logger, pred_model, params.datamodule, metrics, strategy=strategy,
+                                           accelerator=accelerator)
     else:
         val_res, test_res = lightning_fit(wandb_logger, pred_model, params.datamodule, metrics,
                                           params.num_epochs + params.last_epochs, strategy=strategy,

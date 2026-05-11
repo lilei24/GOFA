@@ -18,7 +18,10 @@ from modules.utils import safe_download_hf_file
 
 class GOFAMistralConfig(MistralConfig):
     def __init__(self, dim=4096, num_layers=6, mem_token=128, head=32, add_self_loops=True, dropout=0.0,
-                 llama_dtype=torch.float16, gnn_hidden_act="relu", gnn_mlp_type="gp", gnn_type="index", position_encoding="none", pretraining_tp=0, gating=True, interleave=True, mp_att="concat", trainable_layer=5, fuse_type="interleave", **kwargs):
+                 llama_dtype=torch.float16, gnn_hidden_act="relu", gnn_mlp_type="gp", gnn_type="index",
+                 position_encoding="none", pretraining_tp=0, gating=True, interleave=True, mp_att="concat",
+                 trainable_layer=5, fuse_type="interleave", model_parallel=False, model_parallel_devices=None,
+                 model_parallel_splits=None, **kwargs):
         super().__init__(**kwargs)
         self.dim = dim
         self.mem_token = mem_token
@@ -37,6 +40,9 @@ class GOFAMistralConfig(MistralConfig):
         self.mp_att = mp_att
         self.trainable_layer = trainable_layer
         self.fuse_type = fuse_type
+        self.model_parallel = model_parallel
+        self.model_parallel_devices = model_parallel_devices or ["cuda:0", "cuda:1"]
+        self.model_parallel_splits = model_parallel_splits or [16]
 
 
 @dataclass
@@ -177,7 +183,7 @@ class GOFAMistral(torch.nn.Module):
         return generated_text
 
     def encode(self, data, graph=None, partial_grad=None):
-        cur_device = self.model.memory_token_embed.weight.device
+        cur_device = self.model.icae.get_base_model().model.embed_tokens.weight.device
         batch_size = len(data)
         text_output = \
         self.model.tokenizer(data, truncation=True, max_length=self.model.training_args.model_max_length, padding=False,
@@ -212,6 +218,7 @@ class GOFAMistral(torch.nn.Module):
         return memory_embedding
 
     def decode(self, data, mem_embs, graph=None, prompt=None):
+        cur_device = self.model.icae.get_base_model().model.embed_tokens.weight.device
         prompt_output = self.model.tokenizer(data, add_special_tokens=False, padding=False, truncation=False)["input_ids"]
         prompt_output = [p + [self.model.tokenizer.eos_token_id] if len(p) < self.model.training_args.model_max_length else p[:self.model.training_args.model_max_length] for p in prompt_output]
         original_prompt_output = prompt_output
@@ -232,11 +239,11 @@ class GOFAMistral(torch.nn.Module):
                 prompt_output[i]) + [False] for i in range(batch_size)]
 
         answer_prompt = torch.cat([torch.tensor(p, dtype=torch.long) for p in prompt_output], dim=-1).to(
-            mem_embs.device)
+            cur_device)
 
         prompt_output = {"input_ids": prompt_ids, "attention_mask": prompt_mask}
         prompt_output = self.model.tokenizer.pad(prompt_output, padding=True, return_tensors="pt")
-        prompt_answer_ids = prompt_output["input_ids"].to(mem_embs.device)
+        prompt_answer_ids = prompt_output["input_ids"].to(cur_device)
         prompt_answer_embs = self.model.tokens_to_embeddings(prompt_answer_ids)
 
         mem_mask = [[False] * len(prompt_left_ids[i]) + [True] * self.mem_size + [False] * (
@@ -247,9 +254,9 @@ class GOFAMistral(torch.nn.Module):
                 original_prompt_output[i]) + [False] * (1 + len(prompt_output["input_ids"][i]) - len(prompt_ids[i])) for
             i in range(batch_size)]
 
-        prompt_answer_embs[torch.tensor(mem_mask)] = mem_embs.view(-1, mem_embs.size()[-1])
+        prompt_answer_embs[torch.tensor(mem_mask, device=cur_device)] = mem_embs.to(cur_device).view(-1, mem_embs.size()[-1])
 
-        target_mask = torch.tensor(prompt_mask, dtype=torch.long, device=mem_embs.device).to(torch.bool)
+        target_mask = torch.tensor(prompt_mask, dtype=torch.long, device=cur_device).to(torch.bool)
 
         if self.dec_lora:
             self.model.icae.set_adapter("default")
@@ -261,7 +268,7 @@ class GOFAMistral(torch.nn.Module):
         return output_emb, answer_prompt, target_mask
 
     def infer(self, mem_embs, graph=None, prompt=None, max_length=128):
-        cur_device = self.model.memory_token_embed.weight.device
+        cur_device = self.model.icae.get_base_model().model.embed_tokens.weight.device
 
         if prompt is None:
             prompt = [""] * len(mem_embs)
@@ -282,16 +289,16 @@ class GOFAMistral(torch.nn.Module):
 
         input_prompt_ids = self.model.left_tokenizer.pad({"input_ids": prompt_ids, "attention_mask": mem_mask},
                                                          padding=True, return_tensors="pt")
-        mem_mask = input_prompt_ids["attention_mask"].to(device=mem_embs.device, dtype=torch.bool)
+        mem_mask = input_prompt_ids["attention_mask"].to(device=cur_device, dtype=torch.bool)
 
         input_prompt_ids = self.model.left_tokenizer.pad({"input_ids": prompt_ids, "attention_mask": att_mask},
                                                          padding=True, return_tensors="pt")
         prompt_ids = input_prompt_ids["input_ids"]
-        att_mask = input_prompt_ids["attention_mask"].to(device=mem_embs.device)
+        att_mask = input_prompt_ids["attention_mask"].to(device=cur_device)
 
-        prompt_answer_ids = prompt_ids.to(device=mem_embs.device, dtype=torch.long)
+        prompt_answer_ids = prompt_ids.to(device=cur_device, dtype=torch.long)
         prompt_answer_embs = self.model.tokens_to_embeddings(prompt_answer_ids)
-        prompt_answer_embs[mem_mask] = mem_embs.view(-1, mem_embs.size()[-1])
+        prompt_answer_embs[mem_mask] = mem_embs.to(cur_device).view(-1, mem_embs.size()[-1])
 
         decode_embed = prompt_answer_embs
         output = decode_embed.clone()
@@ -321,7 +328,8 @@ class GOFAMistral(torch.nn.Module):
 
             # eos_reached = torch.logical_or(eos_reached, (next_token_id>=32000).view(-1))
 
-            output = self.model.icae.get_base_model().model.embed_tokens(next_token_id).to(mem_embs.device)
+            next_token_for_embed = next_token_id.to(cur_device)
+            output = self.model.icae.get_base_model().model.embed_tokens(next_token_for_embed)
 
             generate_text.append(next_token_id.view(-1, 1))
             att_mask = torch.cat(
@@ -336,5 +344,3 @@ class GOFAMistral(torch.nn.Module):
         generated_text = self.model.tokenizer.batch_decode(generate_text)
 
         return generated_text
-
-

@@ -102,6 +102,10 @@ class GOFA(torch.nn.Module):
     def load_partial(self, load_dir):
         self.llm_model.load_partial(load_dir)
 
+    def apply_model_parallel(self):
+        if hasattr(self.llm_model, "model") and hasattr(self.llm_model.model, "apply_model_parallel"):
+            self.llm_model.model.apply_model_parallel()
+
     def logit_to_text(self, logits, masks):
         tokenizer = self.llm_model.get_tokenizer()
         if len(logits.size()) == 2:
@@ -116,4 +120,3 @@ class GOFA(torch.nn.Module):
             sample_text = tokenizer.batch_decode(token_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
             decoded_texts.extend(sample_text)
         return decoded_texts
-

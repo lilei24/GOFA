@@ -33,6 +33,10 @@ class GraphTextPredLightning(BaseTemplate):
         # print(batch)
         return self.model(batch)
 
+    def _apply_inference_model_parallel(self):
+        if hasattr(self.model, "apply_model_parallel"):
+            self.model.apply_model_parallel()
+
     def on_train_start(self) -> None:
         torch.cuda.empty_cache()
         self.optimizers().param_groups[0]['lr'] = self.exp_config.lr
@@ -41,6 +45,14 @@ class GraphTextPredLightning(BaseTemplate):
 
     def on_train_batch_start(self, batch: Any, batch_idx: int) -> Optional[int]:
         pass
+
+    def on_validation_epoch_start(self) -> None:
+        self._apply_inference_model_parallel()
+        return super().on_validation_epoch_start()
+
+    def on_test_epoch_start(self):
+        self._apply_inference_model_parallel()
+        return super().on_test_epoch_start()
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         if self.trainer.local_rank == 0:

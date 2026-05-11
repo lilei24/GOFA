@@ -41,6 +41,93 @@ class GOFAMistralModel(MistralModel):
 
         self.post_init()
 
+        self.model_parallel_devices = self._build_model_parallel_devices()
+        self.layer_device_names = self._build_layer_device_names()
+
+    def _build_model_parallel_devices(self):
+        devices = list(getattr(self.gofa_config, "model_parallel_devices", None) or ["cuda:0", "cuda:1"])
+        if len(devices) == 0:
+            raise ValueError("model_parallel_devices must contain at least one device.")
+        return [torch.device(device) for device in devices]
+
+    def _build_layer_device_names(self):
+        devices = list(getattr(self.gofa_config, "model_parallel_devices", None) or ["cuda:0", "cuda:1"])
+        splits = list(getattr(self.gofa_config, "model_parallel_splits", None) or [])
+        n_layers = self.config.num_hidden_layers
+        if len(devices) != len(splits) + 1:
+            raise ValueError("model_parallel_splits must have exactly len(model_parallel_devices) - 1 entries.")
+        if any(split <= 0 or split >= n_layers for split in splits):
+            raise ValueError(f"model_parallel_splits must be inside (0, {n_layers}).")
+        if splits != sorted(splits):
+            raise ValueError("model_parallel_splits must be sorted.")
+
+        layer_devices = []
+        boundaries = splits + [n_layers]
+        start = 0
+        for device, end in zip(devices, boundaries):
+            layer_devices.extend([device] * (end - start))
+            start = end
+        return layer_devices
+
+    def first_device(self):
+        return self.model_parallel_devices[0]
+
+    def last_device(self):
+        return self.model_parallel_devices[-1]
+
+    def device_for_layer(self, layer_idx):
+        return torch.device(self.layer_device_names[layer_idx])
+
+    @staticmethod
+    def _move_position_embeddings(position_embeddings, device):
+        if position_embeddings is None:
+            return None
+        if isinstance(position_embeddings, tuple):
+            return tuple(x.to(device) for x in position_embeddings)
+        return position_embeddings.to(device)
+
+    @staticmethod
+    def _move_graph_tensors(graph, device):
+        if graph is None:
+            return
+        for attr in ("edge_index", "edge_map", "node_map", "question_index"):
+            if hasattr(graph, attr):
+                value = getattr(graph, attr)
+                if torch.is_tensor(value):
+                    setattr(graph, attr, value.to(device))
+
+    def _move_forward_state(
+        self,
+        device,
+        hidden_states,
+        causal_mask,
+        position_ids,
+        cache_position,
+        mem_mask,
+        position_embeddings,
+        graph,
+    ):
+        hidden_states = hidden_states.to(device)
+        causal_mask = causal_mask.to(device) if causal_mask is not None else None
+        position_ids = position_ids.to(device) if position_ids is not None else None
+        cache_position = cache_position.to(device) if cache_position is not None else None
+        mem_mask = mem_mask.to(device) if mem_mask is not None else None
+        position_embeddings = self._move_position_embeddings(position_embeddings, device)
+        self._move_graph_tensors(graph, device)
+        return hidden_states, causal_mask, position_ids, cache_position, mem_mask, position_embeddings
+
+    def apply_model_parallel(self):
+        if not getattr(self.gofa_config, "model_parallel", False):
+            return
+        first_device = self.first_device()
+
+        self.embed_tokens.to(first_device)
+        self.rotary_emb.to(first_device)
+        for i, layer in enumerate(self.layers):
+            layer.to(self.device_for_layer(i))
+        self.g_layers.to(self.last_device())
+        self.norm.to(self.last_device())
+
     def align_weight(self):
         n_layers = len(self.layers)
         inactive_layers = n_layers - len(self.g_layers)
@@ -101,6 +188,19 @@ class GOFAMistralModel(MistralModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
+        if self.gofa_config.model_parallel:
+            first_device = self.first_device()
+            inputs_embeds = inputs_embeds.to(first_device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(first_device)
+            if mem_mask is not None:
+                mem_mask = mem_mask.to(first_device)
+            if position_ids is not None:
+                position_ids = position_ids.to(first_device)
+            if cache_position is not None:
+                cache_position = cache_position.to(first_device)
+            self._move_graph_tensors(graph, first_device)
+
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache()
 
@@ -131,7 +231,24 @@ class GOFAMistralModel(MistralModel):
 
         cur_node_size = graph.num_node_feat if graph is not None else 0
 
+        current_device = inputs_embeds.device
+
         for i, decoder_layer in enumerate(self.layers[: self.config.num_hidden_layers]):
+            if self.gofa_config.model_parallel:
+                target_device = self.device_for_layer(i)
+                if current_device != target_device:
+                    (hidden_states, causal_mask, position_ids, cache_position, mem_mask,
+                     position_embeddings) = self._move_forward_state(
+                        target_device,
+                        hidden_states,
+                        causal_mask,
+                        position_ids,
+                        cache_position,
+                        mem_mask,
+                        position_embeddings,
+                        graph,
+                    )
+                    current_device = target_device
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
             g_layer_idx = i - (self.config.num_hidden_layers - self.gofa_config.num_layers)
@@ -400,9 +517,20 @@ class GOFAMistralForCausalLM(MistralPreTrainedModel, GenerationMixin):
             self.model = GOFAMistralModel(config, gofa_config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        self.model_parallel_applied = False
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    def apply_model_parallel(self):
+        if self.model_parallel_applied:
+            return
+        if getattr(self.model.gofa_config, "model_parallel", False):
+            if not hasattr(self.model, "apply_model_parallel"):
+                raise NotImplementedError("inference_model_parallel currently supports fuse_type='interleave' only.")
+            self.model.apply_model_parallel()
+            self.lm_head.to(self.model.last_device())
+        self.model_parallel_applied = True
 
     def get_input_embeddings(self):
         return self.model.embed_tokens

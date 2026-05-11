@@ -71,6 +71,17 @@ class MistralICAE(torch.nn.Module):
         self.append_sequence = torch.arange(self.vocab_size, self.vocab_size + self.mem_size, dtype=torch.long,
                                             device=device).unsqueeze(0)  # mem tokens
 
+    def apply_model_parallel(self):
+        base_model = self.icae.get_base_model()
+        if not getattr(base_model.model.gofa_config, "model_parallel", False):
+            return
+        if getattr(base_model, "model_parallel_applied", False):
+            return
+        base_model.apply_model_parallel()
+        first_device = base_model.model.first_device()
+        self.memory_token_embed.to(first_device)
+        self.append_sequence = self.append_sequence.to(first_device)
+
     def compute_num_segments(self, total_length):
         assert total_length > 0
         num_segments = math.ceil(total_length / (self.mem_size * self.mean_compression_rate))

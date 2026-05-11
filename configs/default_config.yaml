@@ -41,3 +41,9 @@ training_precision: "bf16-mixed"
 ckpt_path:
 run_mode: "pretrain"
 dec_lora: False   # Set to True to tune decoder by LoRA.
+inference_model_parallel: False
+inference_model_parallel_devices:
+  - cuda:0
+  - cuda:1
+inference_model_parallel_splits:
+  - 16

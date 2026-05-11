@@ -4,6 +4,12 @@ mode: generate
 load_dir: "your_save_model_path"
 load_model: True
 batch_size: 1
+inference_model_parallel: True
+inference_model_parallel_devices:
+  - cuda:0
+  - cuda:1
+inference_model_parallel_splits:
+  - 16
 
 sample_size_per_task: 100    # control the train sample size per task
 llm_max_length: 1024
@@ -30,4 +36,3 @@ inf_instructs:
   - True
 inf_selections:
   - True
-
