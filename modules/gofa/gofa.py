@@ -97,6 +97,7 @@ class GOFAMistral(torch.nn.Module):
         self.model = model
         self.model.tokenizer.pad_token = self.model.tokenizer.eos_token
         self.model.left_tokenizer.pad_token = self.model.left_tokenizer.bos_token
+        self._debug_batch_idx = 0
         for param in self.model.icae.parameters():
             param.requires_grad = False
         for param in self.model.icae.get_base_model().model.g_layers.parameters():
@@ -105,6 +106,42 @@ class GOFAMistral(torch.nn.Module):
             for name, param in self.model.icae.named_parameters():
                 if "default" in name:
                     param.requires_grad = True
+
+    @staticmethod
+    def _tensor_numel(value):
+        return value.numel() if torch.is_tensor(value) else len(value)
+
+    def _log_graph_batch(self, graph, token_lengths, padded_length):
+        if not getattr(self.model.icae.get_base_model().model.gofa_config, "model_parallel", False):
+            return
+        self._debug_batch_idx += 1
+        num_node_text = len(graph.x) if graph is not None and hasattr(graph, "x") else 0
+        num_edge_text = (
+            len(graph.edge_attr)
+            if graph is not None and hasattr(graph, "edge_attr") and graph.edge_attr is not None
+            else 0
+        )
+        num_edges = (
+            graph.edge_index.size(-1)
+            if graph is not None and hasattr(graph, "edge_index") and torch.is_tensor(graph.edge_index)
+            else 0
+        )
+        node_map_size = self._tensor_numel(graph.node_map) if graph is not None and hasattr(graph, "node_map") else 0
+        edge_map_size = self._tensor_numel(graph.edge_map) if graph is not None and hasattr(graph, "edge_map") else 0
+        question_size = self._tensor_numel(graph.question_map) if graph is not None and hasattr(graph, "question_map") else 0
+        token_total = sum(token_lengths)
+        token_max = max(token_lengths) if token_lengths else 0
+        token_mean = token_total / max(len(token_lengths), 1)
+        encode_tokens = [length + self.mem_size for length in token_lengths]
+        encode_total = sum(encode_tokens)
+        print(
+            "[GOFA batch debug] "
+            f"idx={self._debug_batch_idx} "
+            f"node_text={num_node_text} edge_text={num_edge_text} text_items={len(token_lengths)} "
+            f"edge_index={num_edges} node_map={node_map_size} edge_map={edge_map_size} questions={question_size} "
+            f"text_token_total={token_total} text_token_mean={token_mean:.1f} text_token_max={token_max} "
+            f"mem_size={self.mem_size} encode_token_total={encode_total} padded_encode_len={padded_length}"
+        )
 
     def get_tokenizer(self):
         return self.model.tokenizer
@@ -188,11 +225,13 @@ class GOFAMistral(torch.nn.Module):
         text_output = \
         self.model.tokenizer(data, truncation=True, max_length=self.model.training_args.model_max_length, padding=False,
                              return_attention_mask=False)["input_ids"]
+        token_lengths = [len(t) for t in text_output]
 
         text_output = [t + self.mem_tokens for t in text_output]
         text_output = {"input_ids": text_output}
         text_output = self.model.tokenizer.pad(text_output, padding=True, return_tensors="pt")["input_ids"].to(
             cur_device)
+        self._log_graph_batch(graph, token_lengths, text_output.size(1))
         mem_mask = text_output >= self.model.vocab_size
 
         mem_mask = mem_mask.to(cur_device)
