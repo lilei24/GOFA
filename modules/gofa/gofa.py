@@ -208,10 +208,12 @@ class GOFAMistral(torch.nn.Module):
                                            graph=graph, mem_mask=mem_mask, partial_grad=partial_grad, map_node=True)
         self.model.icae.disable_adapter_layers()
         compress_outputs = compress_outputs.hidden_states[-1]
+        mem_mask = mem_mask.to(compress_outputs.device)
 
         if graph is not None:
             node_emb = compress_outputs[:len(graph.node_map)]
-            map_mem_mask = mem_mask[:graph.num_node_feat][graph.node_map]
+            node_map = graph.node_map.to(mem_mask.device)
+            map_mem_mask = mem_mask[:graph.num_node_feat][node_map]
             memory_embedding = node_emb[map_mem_mask].view(len(node_emb), self.mem_size, -1)
         else:
             memory_embedding = compress_outputs[mem_mask].view(batch_size, self.mem_size, -1)
