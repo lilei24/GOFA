@@ -301,6 +301,11 @@ class GOFAMistralModel(MistralModel):
         return output if return_dict else output.to_tuple()
 
     def llm_forward(self, decoder_layer, hidden_states, causal_mask, position_ids, past_key_values, output_attentions, use_cache, cache_position, position_embeddings, flash_attn_kwargs):
+        target_device = hidden_states.device
+        causal_mask = causal_mask.to(target_device) if causal_mask is not None else None
+        position_ids = position_ids.to(target_device) if position_ids is not None else None
+        cache_position = cache_position.to(target_device) if cache_position is not None else None
+        position_embeddings = self._move_position_embeddings(position_embeddings, target_device)
         if self.gradient_checkpointing and self.training:
             layer_outputs = self._gradient_checkpointing_func(decoder_layer.__call__, hidden_states, causal_mask,
                 position_ids, past_key_values, output_attentions, use_cache, cache_position, position_embeddings, )
@@ -498,6 +503,15 @@ class GOFAMistralParallelModel(MistralModel):
         return output if return_dict else output.to_tuple()
 
     def llm_forward(self, decoder_layer, hidden_states, causal_mask, position_ids, past_key_values, output_attentions, use_cache, cache_position, position_embeddings, flash_attn_kwargs):
+        target_device = hidden_states.device
+        causal_mask = causal_mask.to(target_device) if causal_mask is not None else None
+        position_ids = position_ids.to(target_device) if position_ids is not None else None
+        cache_position = cache_position.to(target_device) if cache_position is not None else None
+        if position_embeddings is not None:
+            if isinstance(position_embeddings, tuple):
+                position_embeddings = tuple(x.to(target_device) for x in position_embeddings)
+            else:
+                position_embeddings = position_embeddings.to(target_device)
         if self.gradient_checkpointing and self.training:
             layer_outputs = self._gradient_checkpointing_func(decoder_layer.__call__, hidden_states, causal_mask,
                 position_ids, past_key_values, output_attentions, use_cache, cache_position, position_embeddings, )
