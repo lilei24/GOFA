@@ -8,8 +8,12 @@ inference_model_parallel: True
 inference_model_parallel_devices:
   - cuda:0
   - cuda:1
+  - cuda:2
+  - cuda:3
 inference_model_parallel_splits:
+  - 8
   - 16
+  - 24
 
 sample_size_per_task: 100    # control the train sample size per task
 llm_max_length: 1024
