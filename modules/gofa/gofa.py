@@ -323,6 +323,7 @@ class GOFAMistral(torch.nn.Module):
             past_key_values = out.past_key_values
 
             next_token_id = torch.argmax(logits, dim=-1, keepdim=True)
+            eos_reached = eos_reached.to(next_token_id.device)
 
             eos_reached = torch.logical_or(eos_reached, (next_token_id == self.model.tokenizer.eos_token_id).view(-1))
 
