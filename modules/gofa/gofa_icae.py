@@ -75,8 +75,6 @@ class MistralICAE(torch.nn.Module):
         base_model = self.icae.get_base_model()
         if not getattr(base_model.model.gofa_config, "model_parallel", False):
             return
-        if getattr(base_model, "model_parallel_applied", False):
-            return
         base_model.apply_model_parallel()
         first_device = base_model.model.first_device()
         self.memory_token_embed.to(first_device)

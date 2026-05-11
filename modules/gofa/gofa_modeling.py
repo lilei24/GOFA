@@ -537,20 +537,15 @@ class GOFAMistralForCausalLM(MistralPreTrainedModel, GenerationMixin):
             self.model = GOFAMistralModel(config, gofa_config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        self.model_parallel_applied = False
-
         # Initialize weights and apply final processing
         self.post_init()
 
     def apply_model_parallel(self):
-        if self.model_parallel_applied:
-            return
         if getattr(self.model.gofa_config, "model_parallel", False):
             if not hasattr(self.model, "apply_model_parallel"):
                 raise NotImplementedError("inference_model_parallel currently supports fuse_type='interleave' only.")
             self.model.apply_model_parallel()
             self.lm_head.to(self.model.last_device())
-        self.model_parallel_applied = True
 
     def get_input_embeddings(self):
         return self.model.embed_tokens
