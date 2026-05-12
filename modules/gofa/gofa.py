@@ -270,11 +270,11 @@ class GOFAMistral(torch.nn.Module):
         for name, param in self.model.icae.named_parameters():
             if "encadapt" in name:
                 param.requires_grad = False
-        compress_outputs = self.model.icae(inputs_embeds=autoencoder_input_embedding, output_hidden_states=True,
-                                           graph=graph, mem_mask=mem_mask, partial_grad=partial_grad, map_node=True)
+        compress_outputs = self.model.icae(inputs_embeds=autoencoder_input_embedding, output_hidden_states=False,
+                                           graph=graph, mem_mask=mem_mask, partial_grad=partial_grad, map_node=True,
+                                           return_last_hidden_state=True)
         self.model.icae.disable_adapter_layers()
         self._log_cuda_memory("after_icae_forward")
-        compress_outputs = compress_outputs.hidden_states[-1]
         mem_mask = mem_mask.to(compress_outputs.device)
 
         if graph is not None:
