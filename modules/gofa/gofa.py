@@ -143,6 +143,27 @@ class GOFAMistral(torch.nn.Module):
             f"mem_size={self.mem_size} encode_token_total={encode_total} padded_encode_len={padded_length}"
         )
 
+    def _log_cuda_memory(self, stage):
+        if not getattr(self.model.icae.get_base_model().model.gofa_config, "model_parallel", False):
+            return
+        if not torch.cuda.is_available():
+            return
+        stats = []
+        for device_idx in range(torch.cuda.device_count()):
+            free, total = torch.cuda.mem_get_info(device_idx)
+            allocated = torch.cuda.memory_allocated(device_idx)
+            reserved = torch.cuda.memory_reserved(device_idx)
+            max_allocated = torch.cuda.max_memory_allocated(device_idx)
+            stats.append(
+                f"cuda:{device_idx} "
+                f"alloc={allocated / 1024 ** 3:.2f}G "
+                f"reserved={reserved / 1024 ** 3:.2f}G "
+                f"free={free / 1024 ** 3:.2f}G "
+                f"max_alloc={max_allocated / 1024 ** 3:.2f}G "
+                f"total={total / 1024 ** 3:.2f}G"
+            )
+        print(f"[GOFA cuda memory] idx={self._debug_batch_idx} stage={stage} | " + " | ".join(stats))
+
     def get_tokenizer(self):
         return self.model.tokenizer
 
@@ -222,6 +243,7 @@ class GOFAMistral(torch.nn.Module):
     def encode(self, data, graph=None, partial_grad=None):
         cur_device = self.model.icae.get_base_model().model.embed_tokens.weight.device
         batch_size = len(data)
+        self._log_cuda_memory("encode_start")
         text_output = \
         self.model.tokenizer(data, truncation=True, max_length=self.model.training_args.model_max_length, padding=False,
                              return_attention_mask=False)["input_ids"]
@@ -232,10 +254,12 @@ class GOFAMistral(torch.nn.Module):
         text_output = self.model.tokenizer.pad(text_output, padding=True, return_tensors="pt")["input_ids"].to(
             cur_device)
         self._log_graph_batch(graph, token_lengths, text_output.size(1))
+        self._log_cuda_memory("after_tokenize_pad")
         mem_mask = text_output >= self.model.vocab_size
 
         mem_mask = mem_mask.to(cur_device)
         autoencoder_input_embedding = self.model.tokens_to_embeddings(text_output)
+        self._log_cuda_memory("after_tokens_to_embeddings")
 
         # Use ICAE lora only in the encoder.
         self.model.icae.set_adapter("encadapt")
@@ -246,6 +270,7 @@ class GOFAMistral(torch.nn.Module):
         compress_outputs = self.model.icae(inputs_embeds=autoencoder_input_embedding, output_hidden_states=True,
                                            graph=graph, mem_mask=mem_mask, partial_grad=partial_grad, map_node=True)
         self.model.icae.disable_adapter_layers()
+        self._log_cuda_memory("after_icae_forward")
         compress_outputs = compress_outputs.hidden_states[-1]
         mem_mask = mem_mask.to(compress_outputs.device)
 
