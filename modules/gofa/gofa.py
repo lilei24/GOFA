@@ -260,6 +260,9 @@ class GOFAMistral(torch.nn.Module):
         mem_mask = mem_mask.to(cur_device)
         autoencoder_input_embedding = self.model.tokens_to_embeddings(text_output)
         self._log_cuda_memory("after_tokens_to_embeddings")
+        if getattr(self.model.icae.get_base_model().model.gofa_config, "model_parallel", False):
+            torch.cuda.empty_cache()
+            self._log_cuda_memory("after_empty_cache_before_icae")
 
         # Use ICAE lora only in the encoder.
         self.model.icae.set_adapter("encadapt")
