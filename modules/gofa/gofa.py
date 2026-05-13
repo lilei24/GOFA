@@ -112,8 +112,6 @@ class GOFAMistral(torch.nn.Module):
         return value.numel() if torch.is_tensor(value) else len(value)
 
     def _log_graph_batch(self, graph, token_lengths, padded_length):
-        if not getattr(self.model.icae.get_base_model().model.gofa_config, "model_parallel", False):
-            return
         self._debug_batch_idx += 1
         num_node_text = len(graph.x) if graph is not None and hasattr(graph, "x") else 0
         num_edge_text = (
@@ -140,7 +138,8 @@ class GOFAMistral(torch.nn.Module):
             f"node_text={num_node_text} edge_text={num_edge_text} text_items={len(token_lengths)} "
             f"edge_index={num_edges} node_map={node_map_size} edge_map={edge_map_size} questions={question_size} "
             f"text_token_total={token_total} text_token_mean={token_mean:.1f} text_token_max={token_max} "
-            f"mem_size={self.mem_size} encode_token_total={encode_total} padded_encode_len={padded_length}"
+            f"mem_size={self.mem_size} encode_token_total={encode_total} padded_encode_len={padded_length}",
+            flush=True,
         )
 
     def _log_cuda_memory(self, stage):
@@ -162,7 +161,7 @@ class GOFAMistral(torch.nn.Module):
                 f"max_alloc={max_allocated / 1024 ** 3:.2f}G "
                 f"total={total / 1024 ** 3:.2f}G"
             )
-        print(f"[GOFA cuda memory] idx={self._debug_batch_idx} stage={stage} | " + " | ".join(stats))
+        print(f"[GOFA cuda memory] idx={self._debug_batch_idx} stage={stage} | " + " | ".join(stats), flush=True)
 
     def get_tokenizer(self):
         return self.model.tokenizer
