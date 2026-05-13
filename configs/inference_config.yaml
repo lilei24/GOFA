@@ -13,7 +13,7 @@ inference_model_parallel_devices:
 inference_model_parallel_splits:
   - 6
   - 16
-  - 24
+  - 26
 
 sample_size_per_task: 100    # control the train sample size per task
 llm_max_length: 1024
