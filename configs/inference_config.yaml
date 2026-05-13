@@ -11,8 +11,8 @@ inference_model_parallel_devices:
   - cuda:2
   - cuda:3
 inference_model_parallel_splits:
-  - 4
-  - 12
+  - 6
+  - 16
   - 24
 
 sample_size_per_task: 100    # control the train sample size per task
