@@ -125,7 +125,9 @@ class GOFAMistralModel(MistralModel):
         self.rotary_emb.to(first_device)
         for i, layer in enumerate(self.layers):
             layer.to(self.device_for_layer(i))
-        self.g_layers.to(self.last_device())
+        first_gnn_layer = self.config.num_hidden_layers - self.gofa_config.num_layers
+        for i, g_layer in enumerate(self.g_layers):
+            g_layer.to(self.device_for_layer(first_gnn_layer + i))
         self.norm.to(self.last_device())
 
     def align_weight(self):
