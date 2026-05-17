@@ -116,36 +116,6 @@ class GOFAMistralModel(MistralModel):
         self._move_graph_tensors(graph, device)
         return hidden_states, causal_mask, position_ids, cache_position, mem_mask, position_embeddings
 
-    def _should_log_layer_memory(self, layer_idx):
-        return (
-            getattr(self.gofa_config, "model_parallel", False)
-            and torch.cuda.is_available()
-            and layer_idx >= self.config.num_hidden_layers - 8
-        )
-
-    def _log_layer_cuda_memory(self, layer_idx, device, stage):
-        if not self._should_log_layer_memory(layer_idx):
-            return
-        stats = []
-        for device_idx in range(torch.cuda.device_count()):
-            free, total = torch.cuda.mem_get_info(device_idx)
-            allocated = torch.cuda.memory_allocated(device_idx)
-            reserved = torch.cuda.memory_reserved(device_idx)
-            max_allocated = torch.cuda.max_memory_allocated(device_idx)
-            stats.append(
-                f"cuda:{device_idx} "
-                f"alloc={allocated / 1024 ** 3:.2f}G "
-                f"reserved={reserved / 1024 ** 3:.2f}G "
-                f"free={free / 1024 ** 3:.2f}G "
-                f"max_alloc={max_allocated / 1024 ** 3:.2f}G "
-                f"total={total / 1024 ** 3:.2f}G"
-            )
-        print(
-            f"[GOFA layer memory] layer={layer_idx} device={device} stage={stage} | "
-            + " | ".join(stats),
-            flush=True,
-        )
-
     def apply_model_parallel(self):
         if not getattr(self.gofa_config, "model_parallel", False):
             return
@@ -288,7 +258,6 @@ class GOFAMistralModel(MistralModel):
                 all_hidden_states += (hidden_states,)
             g_layer_idx = i - (self.config.num_hidden_layers - self.gofa_config.num_layers)
             if g_layer_idx >= 0 and graph is not None:
-                self._log_layer_cuda_memory(i, hidden_states.device, f"before_gnn_{g_layer_idx}")
                 if g_layer_idx == 0 and map_node:
                     hidden_states = torch.cat(
                         [hidden_states[:cur_node_size][graph.node_map], hidden_states[cur_node_size:]], dim=0)
@@ -306,8 +275,6 @@ class GOFAMistralModel(MistralModel):
                 gnn_output[mem_mask] = output.view(-1, output.size()[-1])
                 hidden_states = hidden_states * torch.logical_not(mem_mask).unsqueeze(2) + gnn_output
                 hidden_states = hidden_states.to(self.gofa_config.llama_dtype)
-                self._log_layer_cuda_memory(i, hidden_states.device, f"after_gnn_{g_layer_idx}")
-            self._log_layer_cuda_memory(i, hidden_states.device, "before_llm")
             if g_layer_idx < 0 and partial_grad:
                 with torch.no_grad():
                     layer_outputs = self.llm_forward(decoder_layer, hidden_states, causal_mask, position_ids, past_key_values, output_attentions, use_cache, cache_position, position_embeddings, flash_attn_kwargs)
@@ -317,7 +284,6 @@ class GOFAMistralModel(MistralModel):
                                                  position_embeddings, flash_attn_kwargs)
 
             hidden_states = layer_outputs[0]
-            self._log_layer_cuda_memory(i, hidden_states.device, "after_llm")
 
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
