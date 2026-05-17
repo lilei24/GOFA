@@ -91,6 +91,7 @@ class GOFAMistral(torch.nn.Module):
         self.model = model
         self.model.tokenizer.pad_token = self.model.tokenizer.eos_token
         self.model.left_tokenizer.pad_token = self.model.left_tokenizer.bos_token
+        self._enable_training_memory_savers()
         for param in self.model.icae.parameters():
             param.requires_grad = False
         for param in self.model.icae.get_base_model().model.g_layers.parameters():
@@ -99,6 +100,15 @@ class GOFAMistral(torch.nn.Module):
             for name, param in self.model.icae.named_parameters():
                 if "default" in name:
                     param.requires_grad = True
+
+    def _enable_training_memory_savers(self):
+        base_model = self.model.icae.get_base_model()
+        base_model.config.use_cache = False
+        base_model.model.config.use_cache = False
+        if hasattr(self.model.icae, "gradient_checkpointing_enable"):
+            self.model.icae.gradient_checkpointing_enable()
+        else:
+            base_model.model.gradient_checkpointing_enable()
 
     def get_tokenizer(self):
         return self.model.tokenizer
@@ -198,10 +208,10 @@ class GOFAMistral(torch.nn.Module):
         for name, param in self.model.icae.named_parameters():
             if "encadapt" in name:
                 param.requires_grad = False
-        compress_outputs = self.model.icae(inputs_embeds=autoencoder_input_embedding, output_hidden_states=True,
-                                           graph=graph, mem_mask=mem_mask, partial_grad=partial_grad, map_node=True)
+        compress_outputs = self.model.icae(inputs_embeds=autoencoder_input_embedding, output_hidden_states=False,
+                                           graph=graph, mem_mask=mem_mask, partial_grad=partial_grad, map_node=True,
+                                           use_cache=False, return_last_hidden_state=True)
         self.model.icae.disable_adapter_layers()
-        compress_outputs = compress_outputs.hidden_states[-1]
 
         if graph is not None:
             node_emb = compress_outputs[:len(graph.node_map)]
@@ -256,7 +266,7 @@ class GOFAMistral(torch.nn.Module):
             self.model.icae.enable_adapter_layers()
         else:
             self.model.icae.disable_adapter_layers()
-        output_emb = self.model.icae(inputs_embeds=prompt_answer_embs).logits
+        output_emb = self.model.icae(inputs_embeds=prompt_answer_embs, use_cache=False).logits
 
         return output_emb, answer_prompt, target_mask
 
@@ -336,5 +346,4 @@ class GOFAMistral(torch.nn.Module):
         generated_text = self.model.tokenizer.batch_decode(generate_text)
 
         return generated_text
-
 
