@@ -13,7 +13,7 @@ batch_size: 1
 eval_batch_size: 1
 num_workers: 4
 seed: 1
-offline_log: False
+offline_log: True
 log_project: "GOFA"
 exp_name: "gofa"
 train_sample_size: -1

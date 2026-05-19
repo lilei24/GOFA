@@ -116,10 +116,6 @@ class GOFAAttention(MessagePassing):
 
         return out
 
-    def __repr__(self) -> str:
-        return (f'{self.__class__.__name__}({self.in_channels}, '
-                f'{self.out_channels}, heads={self.heads})')
-
 class GOFAAttentionIndex(GOFAAttention):
     """
     GOFA based on Grouped query attention from LlaMA-2. This is the INDEX attention version.
@@ -371,11 +367,6 @@ class GOFAGNNConv(MessagePassing):
 
         return out
 
-    def __repr__(self) -> str:
-        return (f'{self.__class__.__name__}({self.in_channels}, '
-                f'{self.out_channels}, heads={self.heads})')
-
-
 class GOFAGNNConvFullAtt(GOFAGNNConv):
     def __init__(self, config):
         super().__init__(config)
@@ -411,7 +402,3 @@ class GOFAGNNConvFullAtt(GOFAGNNConv):
         out = out.permute(1, 2, 0, 3).reshape(-1, self.in_layer, self.in_dim)
 
         return out
-
-    def __repr__(self) -> str:
-        return (f'{self.__class__.__name__}({self.in_channels}, '
-                f'{self.out_channels}, heads={self.heads})')
