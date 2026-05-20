@@ -1,4 +1,5 @@
 import os
+import os.path as osp
 import time
 from typing import Any, Optional, Dict, Union, Callable
 
@@ -61,6 +62,31 @@ class GraphTextPredLightning(BaseTemplate):
         if self.trainer.local_rank == 0:
             print("save last epoch ckpt")
             self.model.save_partial(os.path.join(self.model.save_dir, "last_epoch_ckpt.pth"))
+
+    def compute_results(self, batch, batch_idx, step_name, log_loss=True, *args):
+        stage_start = time.perf_counter()
+        score = self(batch, *args)
+        self._sync_cuda()
+        self._log_train_profile(batch_idx, "after_forward", time.perf_counter() - stage_start)
+
+        stage_start = time.perf_counter()
+        loss = self.eval_kit.compute_loss(score, batch)
+        self._sync_cuda()
+        self._log_train_profile(batch_idx, "after_loss", time.perf_counter() - stage_start)
+
+        stage_start = time.perf_counter()
+        self.log(osp.join(self.name, step_name, "loss"), loss, on_step=True, on_epoch=False, prog_bar=log_loss,
+                 batch_size=batch.batch_size if hasattr(batch, "batch_size") else len(batch), sync_dist=True, )
+        self._sync_cuda()
+        self._log_train_profile(batch_idx, "after_log_loss", time.perf_counter() - stage_start)
+
+        with torch.no_grad():
+            if self.eval_kit.has_eval_state(step_name):
+                stage_start = time.perf_counter()
+                self.eval_kit.eval_step(score, batch, step_name)
+                self._sync_cuda()
+                self._log_train_profile(batch_idx, "after_eval_step", time.perf_counter() - stage_start)
+        return score, loss
 
     def training_step(self, batch, batch_idx, dataloader_idx=0):
         self._sync_cuda()
