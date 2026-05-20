@@ -282,6 +282,30 @@ class GOFAMistral(torch.nn.Module):
         return memory_embedding
 
     def decode(self, data, mem_embs, graph=None, prompt=None):
+        decode_chunk_size = 1
+        if len(data) <= decode_chunk_size:
+            return self._decode_batch(data, mem_embs, graph=graph, prompt=prompt)
+
+        logits = []
+        answer_ids = []
+        for start in range(0, len(data), decode_chunk_size):
+            end = start + decode_chunk_size
+            chunk_prompt = None if prompt is None else prompt[start:end]
+            chunk_logits, chunk_answer_id, chunk_mask = self._decode_batch(
+                data[start:end],
+                mem_embs[start:end],
+                graph=graph,
+                prompt=chunk_prompt,
+            )
+            logits.append(chunk_logits[chunk_mask])
+            answer_ids.append(chunk_answer_id)
+
+        logits = torch.cat(logits, dim=0).unsqueeze(0)
+        answer_ids = torch.cat(answer_ids, dim=0)
+        target_mask = torch.ones(logits.shape[:2], dtype=torch.bool, device=logits.device)
+        return logits, answer_ids, target_mask
+
+    def _decode_batch(self, data, mem_embs, graph=None, prompt=None):
         prompt_output = self.model.tokenizer(data, add_special_tokens=False, padding=False, truncation=False)["input_ids"]
         prompt_output = [p + [self.model.tokenizer.eos_token_id] if len(p) < self.model.training_args.model_max_length else p[:self.model.training_args.model_max_length] for p in prompt_output]
         original_prompt_output = prompt_output

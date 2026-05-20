@@ -2,8 +2,6 @@ import os
 import time
 from typing import Any, Optional, Dict, Union, Callable
 
-import numpy as np
-
 from gp.lightning.module_template import BaseTemplate
 import torch
 
@@ -16,18 +14,6 @@ class GraphPredLightning(BaseTemplate):
         self.optimizers().param_groups[0]['lr'] = self.exp_config.lr
         self.lr_schedulers().last_epoch = -1
         self.lr_schedulers().T_max = self.exp_config.T_max
-
-def make_dummy_batch(batch):
-    batch.edge_index = torch.zeros((2, 0), device=batch.edge_index.device, dtype=batch.edge_index.dtype)
-    batch.question_map = torch.tensor([0], device=batch.question_map.device, dtype=batch.edge_index.dtype)
-    batch.answer_map = torch.tensor([0], device=batch.question_map.device, dtype=batch.edge_index.dtype)
-    batch.node_map = torch.tensor([0], device=batch.question_map.device, dtype=batch.edge_index.dtype)
-    batch.edge_map = torch.tensor([], device=batch.question_map.device, dtype=batch.edge_index.dtype)
-    batch.x = np.array(["Your name is "], dtype=object)
-    batch.edge_attr = np.array([], dtype=object)
-    batch.question = np.array(["Your name is "], dtype=object)
-    batch.answer = np.array(["GOFA."],dtype=object)
-    batch.question_index = torch.tensor([0], device=batch.question_map.device, dtype=batch.edge_index.dtype)
 
 class GraphTextPredLightning(BaseTemplate):
     def forward(self, batch):
@@ -84,17 +70,9 @@ class GraphTextPredLightning(BaseTemplate):
             score, loss = self.compute_results(batch, batch_idx, self.exp_config.train_state_name[dataloader_idx])
         except RuntimeError as e:
             if "out of memory" in str(e):
-                self._log_train_profile(batch_idx, "oom_fallback_start")
-                for p in self.model.parameters():
-                    if p.grad is not None:
-                        del p.grad  # free some memory
-                self.optimizers().zero_grad()
+                self._log_train_profile(batch_idx, "oom_raise")
                 torch.cuda.empty_cache()
-                make_dummy_batch(batch)
-                print("OOM batch use dummy")
-                score, loss = self.compute_results(batch, batch_idx, self.exp_config.train_state_name[dataloader_idx])
-            else:
-                raise e
+            raise e
         self._sync_cuda()
         self._log_train_profile(batch_idx, "training_step_end", time.perf_counter() - step_start)
         return loss
