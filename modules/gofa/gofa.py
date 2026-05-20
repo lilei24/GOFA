@@ -1,4 +1,6 @@
 # example code for running inference with fine-tuned checkpoint
+import os
+import time
 from typing import Optional
 
 import numpy as np
@@ -91,6 +93,7 @@ class GOFAMistral(torch.nn.Module):
         self.model = model
         self.model.tokenizer.pad_token = self.model.tokenizer.eos_token
         self.model.left_tokenizer.pad_token = self.model.left_tokenizer.bos_token
+        self._debug_forward_idx = 0
         self._enable_training_memory_savers()
         for param in self.model.icae.parameters():
             param.requires_grad = False
@@ -112,6 +115,41 @@ class GOFAMistral(torch.nn.Module):
 
     def get_tokenizer(self):
         return self.model.tokenizer
+
+    @staticmethod
+    def _debug_rank():
+        return int(os.environ.get("LOCAL_RANK", os.environ.get("RANK", 0)))
+
+    @staticmethod
+    def _sync_cuda():
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+
+    @staticmethod
+    def _numel_or_len(value):
+        return value.numel() if torch.is_tensor(value) else len(value)
+
+    def _graph_debug_summary(self, graph, text_items=0, num_answers=0):
+        node_text = len(graph.x) if hasattr(graph, "x") else 0
+        edge_text = len(graph.edge_attr) if hasattr(graph, "edge_attr") and graph.edge_attr is not None else 0
+        edge_index = graph.edge_index.size(-1) if hasattr(graph, "edge_index") and torch.is_tensor(graph.edge_index) else 0
+        node_map = self._numel_or_len(graph.node_map) if hasattr(graph, "node_map") else 0
+        edge_map = self._numel_or_len(graph.edge_map) if hasattr(graph, "edge_map") else 0
+        questions = self._numel_or_len(graph.question_map) if hasattr(graph, "question_map") else 0
+        return (
+            f"node_text={node_text} edge_text={edge_text} text_items={text_items} "
+            f"edge_index={edge_index} node_map={node_map} edge_map={edge_map} "
+            f"questions={questions} answers={num_answers}"
+        )
+
+    def _log_forward_profile(self, forward_idx, stage, elapsed=None, extra=""):
+        elapsed_text = f" elapsed={elapsed:.2f}s" if elapsed is not None else ""
+        extra_text = f" {extra}" if extra else ""
+        print(
+            f"[GOFA pretrain profile] rank={self._debug_rank()} "
+            f"forward_idx={forward_idx} stage={stage}{elapsed_text}{extra_text}",
+            flush=True,
+        )
 
     def train_mode(self):
         self.model.icae.set_adapter("encadapt")
@@ -148,13 +186,26 @@ class GOFAMistral(torch.nn.Module):
         """
         Encode the graph and generate logits for answer tokens.
         """
+        self._debug_forward_idx += 1
+        forward_idx = self._debug_forward_idx
         g.num_node_feat = g.x.shape[0]
         if hasattr(g, "edge_attr") and g.edge_attr is not None:
             text_inputs = np.concatenate([g.x, g.edge_attr], axis=0)
         else:
             text_inputs = g.x
         text_inputs = text_inputs.tolist()
+
+        self._log_forward_profile(
+            forward_idx,
+            "start",
+            extra=self._graph_debug_summary(g, text_items=len(text_inputs)),
+        )
+        self._sync_cuda()
+        encode_start = time.perf_counter()
         llm_output = self.encode(text_inputs, graph=g, partial_grad=True)
+        self._sync_cuda()
+        self._log_forward_profile(forward_idx, "after_encode", time.perf_counter() - encode_start)
+
         emb = llm_output[:g.node_map.size(-1)]
         if not hasattr(g, "answer"):
             raise ValueError("Forward stage graph should contain answer.")
@@ -164,7 +215,16 @@ class GOFAMistral(torch.nn.Module):
         prompt_input_texts = ["" if (p.startswith("Please complete the sentence of the node") or p == "") else p for p
                               in prompt_texts]
         emb = emb[g.question_index]
+        self._log_forward_profile(
+            forward_idx,
+            "before_decode",
+            extra=self._graph_debug_summary(g, text_items=len(text_inputs), num_answers=len(answer_texts)),
+        )
+        self._sync_cuda()
+        decode_start = time.perf_counter()
         answer_logits, answer_id, masks = self.decode(answer_texts, emb, prompt=prompt_input_texts)
+        self._sync_cuda()
+        self._log_forward_profile(forward_idx, "after_decode", time.perf_counter() - decode_start)
         return answer_logits, answer_id, masks, answer_texts
 
     def generate(self, g, max_length=128):
@@ -346,4 +406,3 @@ class GOFAMistral(torch.nn.Module):
         generated_text = self.model.tokenizer.batch_decode(generate_text)
 
         return generated_text
-
