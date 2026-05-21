@@ -75,8 +75,10 @@ class GraphTextPredLightning(BaseTemplate):
         self._log_train_profile(batch_idx, "after_loss", time.perf_counter() - stage_start)
 
         stage_start = time.perf_counter()
+        train_state_names = getattr(self.exp_config, "train_state_name", [])
+        sync_loss = step_name not in train_state_names
         self.log(osp.join(self.name, step_name, "loss"), loss, on_step=True, on_epoch=False, prog_bar=log_loss,
-                 batch_size=batch.batch_size if hasattr(batch, "batch_size") else len(batch), sync_dist=True, )
+                 batch_size=batch.batch_size if hasattr(batch, "batch_size") else len(batch), sync_dist=sync_loss, )
         self._sync_cuda()
         self._log_train_profile(batch_idx, "after_log_loss", time.perf_counter() - stage_start)
 
