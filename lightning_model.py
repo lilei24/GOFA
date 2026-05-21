@@ -30,6 +30,11 @@ class GraphTextPredLightning(BaseTemplate):
         if torch.cuda.is_available():
             torch.cuda.synchronize()
 
+    @staticmethod
+    def _distributed_barrier():
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            torch.distributed.barrier()
+
     def _log_train_profile(self, batch_idx, stage, elapsed=None):
         elapsed_text = f" elapsed={elapsed:.2f}s" if elapsed is not None else ""
         print(
@@ -107,6 +112,7 @@ class GraphTextPredLightning(BaseTemplate):
 
     def on_before_backward(self, loss):
         self._sync_cuda()
+        self._distributed_barrier()
         self._backward_start_time = time.perf_counter()
         batch_idx = getattr(self, "_current_train_batch_idx", "unknown")
         self._log_train_profile(batch_idx, "before_backward")
