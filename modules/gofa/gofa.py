@@ -215,6 +215,11 @@ class GOFAMistral(torch.nn.Module):
         prompt_input_texts = ["" if (p.startswith("Please complete the sentence of the node") or p == "") else p for p
                               in prompt_texts]
         emb = emb[g.question_index]
+        if self.training and len(answer_texts) > 1:
+            qa_idx = torch.randint(len(answer_texts), (1,), device=emb.device).item()
+            answer_texts = [answer_texts[qa_idx]]
+            prompt_input_texts = [prompt_input_texts[qa_idx]]
+            emb = emb[qa_idx:qa_idx + 1]
         self._log_forward_profile(
             forward_idx,
             "before_decode",
